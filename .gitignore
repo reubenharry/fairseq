@@ -1,3 +1,6 @@
+wmt14.en-fr.fconv-py/
+wmt14.v2.en-fr.fconv-py.tar.bz2
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
