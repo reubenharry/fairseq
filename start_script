@@ -1,0 +1,3 @@
+conda env list
+conda activate pyt
+python interactive.py  --path wmt14.en-fr.fconv-py/model.pt wmt14.en-fr.fconv-py --beam 5 --source en --target fr

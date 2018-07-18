@@ -9,6 +9,7 @@
 from collections import namedtuple
 import numpy as np
 import sys
+import scipy.misc
 
 import torch
 
@@ -135,17 +136,78 @@ def main(args):
             maxlen=int(args.max_len_a * tokens.size(1) + args.max_len_b),
         )
 
+        print("translations",translations)
+        print(batch.srcs[0])
+
         return [make_result(batch.srcs[i], t) for i, t in enumerate(translations)]
+
+
+
+
+    batch, batch_indices = next(make_batches(["My name is John . "], args, src_dict, models[0].max_positions()))
+    # indices.extend(batch_indices)
+    # results += process_batch(batch)
+
+    translations = translator.generate(
+            Variable(batch.tokens),
+            Variable(batch.lengths),
+            maxlen=int(args.max_len_a * batch.tokens.size(1) + args.max_len_b),
+            prefix_tokens=["Je"],
+        )
+
+    batch_2, batch_indices_2 = next(make_batches(["John is my name . "], args, src_dict, models[0].max_positions()))
+    # indices.extend(batch_indices)
+    # results += process_batch(batch)
+
+    print([tgt_dict.symbols[x] for x in np.argsort(-translations)[:10]],"translations")
+
+
+    translations_2 = translator.generate(
+            Variable(batch_2.tokens),
+            Variable(batch_2.lengths),
+            maxlen=int(args.max_len_a * batch_2.tokens.size(1) + args.max_len_b),
+            prefix_tokens=["Je"],
+        )
+
+    print([tgt_dict.symbols[x] for x in np.argsort(-translations_2)[:10]],"translations_2")
+
+    # l0 = translations - (scipy.misc.logsumexp([translations, translations_2],axis=0))
+
+    s1_0 = np.exp(translations) / (np.exp(translations)+np.exp(translations_2))
+    s1_1 = np.exp(translations_2) / (np.exp(translations)+np.exp(translations_2))
+
+    # print(l0)
+
+    # print()
+    
+
+    print([tgt_dict.symbols[x] for x in np.argsort(-s1_0)[:10]],"s1_0")
+    print([tgt_dict.symbols[x] for x in np.argsort(-s1_1)[:10]],"s1_1")
+    
+    raise Exception
+
+
 
     if args.buffer_size > 1:
         print('| Sentence buffer size:', args.buffer_size)
     print('| Type the input sentence and press return:')
     for inputs in buffered_read(args.buffer_size):
+    #     print("inputs, interactive",inputs)
+
+    # for inputs in ["my name is John."]:
+
         indices = []
         results = []
+
+
+
         for batch, batch_indices in make_batches(inputs, args, src_dict, models[0].max_positions()):
+            print(batch.tokens,batch.lengths)
+            raise Exception
             indices.extend(batch_indices)
             results += process_batch(batch)
+
+            # raise Exception
 
         for i in np.argsort(indices):
             result = results[i]
@@ -155,7 +217,21 @@ def main(args):
                 print(align)
 
 
+
 if __name__ == '__main__':
+
+
+    #     translations = translator.generate(
+    #     Variable(tokens),
+    #     Variable(lengths),
+    #     maxlen=int(args.max_len_a * tokens.size(1) + args.max_len_b),
+    # )
+
     parser = options.get_generation_parser(interactive=True)
     args = options.parse_args_and_arch(parser)
+    # args.target='fr'
+    # args.source='en'
+    # args.beam=5
+    # args.path='wmt14.en-fr.fconv-py/model.pt wmt14.en-fr.fconv-py'
+    # --path wmt14.en-fr.fconv-py/model.pt wmt14.en-fr.fconv-py
     main(args)
