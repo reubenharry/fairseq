@@ -12,6 +12,7 @@ import sys
 import scipy.misc
 
 import torch
+from torch.autograd import Variable
 
 from fairseq import data, options, tasks, tokenizer, utils
 from fairseq.sequence_generator import SequenceGenerator
@@ -53,6 +54,7 @@ def make_batches(lines, args, src_dict, max_positions):
         ), batch['id']
 
 
+
 def main(args):
     if args.buffer_size < 1:
         args.buffer_size = 1
@@ -74,7 +76,7 @@ def main(args):
     # Load ensemble
     print('| loading model(s) from {}'.format(args.path))
     model_paths = args.path.split(':')
-    models, model_args = utils.load_ensemble_for_inference(model_paths, task, model_arg_overrides=eval(args.model_overrides))
+    models, model_args = utils.load_ensemble_for_inference(model_paths, task)
 
     # Set dictionaries
     src_dict = task.source_dictionary
@@ -131,50 +133,73 @@ def main(args):
             lengths = lengths.cuda()
 
         translations = translator.generate(
-            tokens,
-            lengths,
+            Variable(tokens),
+            Variable(lengths),
             maxlen=int(args.max_len_a * tokens.size(1) + args.max_len_b),
         )
 
-        print("translations",translations)
-        print(batch.srcs[0])
+        # print("translations",translations)
+        # print(batch.srcs[0])
 
         return [make_result(batch.srcs[i], t) for i, t in enumerate(translations)]
 
 
 
 
-    batch, batch_indices = next(make_batches(["My name is John . "], args, src_dict, models[0].max_positions()))
     # indices.extend(batch_indices)
     # results += process_batch(batch)
 
-    translations = translator.generate(
-            Variable(batch.tokens),
-            Variable(batch.lengths),
-            maxlen=int(args.max_len_a * batch.tokens.size(1) + args.max_len_b),
-            prefix_tokens=["Je"],
-        )
+    def forward(c):
 
-    batch_2, batch_indices_2 = next(make_batches(["John is my name . "], args, src_dict, models[0].max_positions()))
-    # indices.extend(batch_indices)
-    # results += process_batch(batch)
+        batch, batch_indices = next(make_batches([args.target], args, src_dict, models[0].max_positions()))
+        translations = translator.generate(
+                Variable(batch.tokens),
+                Variable(batch.lengths),
+                maxlen=int(args.max_len_a * batch.tokens.size(1) + args.max_len_b),
+                prefix_tokens=c,
+            )
+        return translations, [tgt_dict[x] for x in range(translations.shape[0])] 
+        # np.max(translations),tgt_dict.symbols[np.argsort(-translations)[0]]  
 
-    print([tgt_dict.symbols[x] for x in np.argsort(-translations)[:10]],"translations")
+        batch_2, batch_indices_2 = next(make_batches([args.distractor], args, src_dict, models[0].max_positions()))
+    # return [tgt_dict.symbols[x] for x in np.argsort(-translations)[:10]] 
 
 
-    translations_2 = translator.generate(
+        translations_2 = translator.generate(
             Variable(batch_2.tokens),
             Variable(batch_2.lengths),
             maxlen=int(args.max_len_a * batch_2.tokens.size(1) + args.max_len_b),
-            prefix_tokens=["Je"],
+            prefix_tokens=c,
         )
-
-    print([tgt_dict.symbols[x] for x in np.argsort(-translations_2)[:10]],"translations_2")
-
+        # l0 = translations - scipy.misc.logsumexp([translations, translations_2],axis=0)
+        s1_0 = translations - scipy.misc.logsumexp([translations, translations_2],axis=0)
+        # print([tgt_dict.symbols[x] for x in np.argsort(-translations)].index("ces"))
+        # print([tgt_dict.symbols[x] for x in np.argsort(-translations_2)].index("ces"))
+        # print([tgt_dict.symbols[x] for x in np.argsort(-s1_0)].index("ces"))
+        # raise Exception
     # l0 = translations - (scipy.misc.logsumexp([translations, translations_2],axis=0))
 
-    s1_0 = np.exp(translations) / (np.exp(translations)+np.exp(translations_2))
-    s1_1 = np.exp(translations_2) / (np.exp(translations)+np.exp(translations_2))
+        # s1_1 = translations_2 - scipy.misc.logsumexp([translations, translations_2],axis=0)
+        # print([tgt_dict.symbols[x] for x in np.argsort(-translations)[:10]] )
+        # print([tgt_dict.symbols[x] for x in np.argsort(-translations_2)[:10]] )
+        # print(np.argsort(-s1_0)[:10])
+        # print([tgt_dict.symbols[x] for x in np.argsort(-(0.001*np.exp(s1_0)+0.999*np.exp(translations)))[:10]] )
+        # print([tgt_dict.symbols[x] for x in np.argsort(s1_1)[:10]] )
+        
+        return tgt_dict.symbols[np.argsort(-(1.0*np.exp(s1_0)+0.0*np.exp(translations)))[0]]
+
+    return forward(args.context_sentence)
+    for i in range(10):
+
+        print("RESULT:",args.context_sentence)
+        next_word = forward(args.context_sentence)
+        if next_word=='</s>':
+            break
+        args.context_sentence+=[next_word]
+
+    return " ".join(args.context_sentence)
+
+    
 
     # print(l0)
 
@@ -217,9 +242,11 @@ def main(args):
                 print(align)
 
 
+def world_to_utterance(target,context_sentence):
 
-if __name__ == '__main__':
-
+    class Args:
+        def __init__(self):
+            pass
 
     #     translations = translator.generate(
     #     Variable(tokens),
@@ -227,11 +254,68 @@ if __name__ == '__main__':
     #     maxlen=int(args.max_len_a * tokens.size(1) + args.max_len_b),
     # )
 
-    parser = options.get_generation_parser(interactive=True)
-    args = options.parse_args_and_arch(parser)
-    # args.target='fr'
-    # args.source='en'
-    # args.beam=5
-    # args.path='wmt14.en-fr.fconv-py/model.pt wmt14.en-fr.fconv-py'
-    # --path wmt14.en-fr.fconv-py/model.pt wmt14.en-fr.fconv-py
-    main(args)
+    # parser = options.get_generation_parser(interactive=True)
+    # args = options.parse_args_and_arch(parser)
+
+    # print(args.sampling_temperature,args.score_reference,args.seed,args.shard_id,args.skip_invalid_size_inputs_valid_test,args.unnormalized)
+    # raise Exception
+    # print(dir(args))
+
+
+    args = Args()
+    args.sampling_topk=-1
+    args.cpu=False
+    args.target=target
+    # args.distractor="animals run fast ."
+    args.context_sentence=context_sentence
+    # args.target="the animals run fast ."
+    # args.distractor=distractor
+    # args.context_sentence=[]
+    args.gen_subset='test'
+    args.log_format=None
+    args.log_interval=1000
+    args.max_len_a=0
+    args.max_len_b=200
+    args.max_source_positions=1024
+    args.max_target_positions=1024
+    args.min_len = 1
+    args.model_overrides={}
+    args.no_progress_bar=False
+    args.num_shards=1
+    args.prefix_size=0
+    args.quiet=False
+    args.raw_text=False
+    args.replace_unk=None
+    args.sampling_temperature=1
+    args.score_reference=False
+    args.seed=1
+    args.shard_id=0
+    args.skip_invalid_size_inputs_valid_test=False
+    args.lenpen=1
+    args.unkpen=0
+    args.unnormalized=False
+    args.no_early_stop=False
+    args.fp16=False
+    args.no_beamable_mm=False
+    args.data='wmt14.en-fr.fconv-py'
+    args.target_lang='fr'
+    args.source_lang='en'
+    args.beam=5
+    args.path='wmt14.en-fr.fconv-py/model.pt'
+    args.buffer_size=0
+    args.max_tokens=None
+    args.max_sentences=None
+    args.nbest=1
+    args.sampling=False
+    args.remove_bpe=None
+    args.task='translation'
+    args.left_pad_source=True
+    args.left_pad_target=False
+    return main(args)
+
+
+if __name__ == '__main__':
+
+    # out = greedy_unroll("the animals run fast. ",[])
+    # out = world_to_utterance(target="the animals run fast .",distractor="the animals run fast .",context_sentence=[])
+    print(world_to_utterance("the animals",[]))
